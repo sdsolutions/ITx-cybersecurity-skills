@@ -22,6 +22,30 @@ Usage:
 /security-scan acme-client.com --depth standard --auth "SOW-2026-14" --scope "*.acme-client.com"
 ```
 
+### `/metadata-scan`
+
+Scan-only auditor for embedded metadata that could leak personal or company data. Wraps ExifTool (~50 formats) and optionally mat2 (Office/PDF tracked-changes) to inspect:
+
+- **Images** — EXIF GPS coords, camera serial, phone model, author, edit history, embedded thumbnails
+- **PDFs** — Author, Creator, LastModifiedBy, hidden content, embedded JS/XFA
+- **Office (DOCX/XLSX/PPTX)** — creator, comments, tracked changes, hidden slides/rows/columns, embedded thumbnails
+- **SVG** — absolute source paths (Illustrator/Sketch), `<dc:creator>`, editor comments
+- **Video/Audio** — GPS, device model, ID3 author/comment fields
+- **Web bundles** — source-map dev-machine paths, `@author` JSDoc, inline comments
+- **Hidden sidecars** — `.DS_Store`, `Thumbs.db`, `~$*`, `.git`, `.env`, `.idea`, `.vscode`, SSH keys, history files
+
+**Never writes.** Reports severity-classified findings on the trigger issue; full raw + SHA-256 stored in the private ops vault. Personal paths, names, and GPS coordinates are redacted in the report body.
+
+Requires `exiftool` (`brew install exiftool`). `mat2` optional (`pipx install mat2`).
+
+Usage:
+
+```
+/metadata-scan ./assets/marketing/
+/metadata-scan https://example.com/brochure.pdf
+/metadata-scan ./assets/**/*.{jpg,pdf,docx} --recursive
+```
+
 ### `/tech-register`
 
 The **skill**. Persists newly-discovered technologies to the CVE feed's dynamic scope registry (`references/tracked-tech.json` in the private ops vault). Consumes discovered-tech JSON, Wappalyzer output, Nmap XML, or CycloneDX / SPDX SBOMs.
