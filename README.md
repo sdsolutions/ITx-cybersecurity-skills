@@ -46,6 +46,25 @@ Usage:
 /metadata-scan ./assets/**/*.{jpg,pdf,docx} --recursive
 ```
 
+### `/secret-scan`
+
+Scan a local directory, glob, git repo, or URL for leaked credentials in text form (source code, config, logs, dotfiles). Complements `/metadata-scan` (which finds embedded metadata in binaries) — `/secret-scan` finds credentials in text.
+
+- **Detects 48+ patterns** — cloud (AWS/GCP/Azure/Cloudflare/DO), source control (GitHub/GitLab PATs), dev platforms (npm/PyPI/Docker Hub/Atlassian), communication (Slack/Discord/Twilio/SendGrid), AI providers (Anthropic/OpenAI/HuggingFace), observability (DataDog/Sentry/New Relic), tunneling (ngrok/Postman)
+- Also catches generic JWTs, PEM private keys, database URIs with plaintext creds, HTTP basic-auth URLs, and a keyword-gated high-entropy fallback
+- **Never writes, revokes, or validates** — findings are redacted (first 4 chars + `<redacted-N-chars>`), only SHA-256 hashes stored in the private ops vault
+- `--include-history` mode scans full git log — hours for a big repo, catches secrets that were reverted but still live in history
+- Requires `ripgrep` for ~50x speedup (`brew install ripgrep`), falls back to `grep -RE` if missing
+
+Usage:
+
+```
+/secret-scan ./src/
+/secret-scan https://github.com/some/repo.git
+/secret-scan ./src/**/*.{py,js,env} --recursive
+/secret-scan https://github.com/some/repo.git --include-history
+```
+
 ### `/tech-register`
 
 The **skill**. Persists newly-discovered technologies to the CVE feed's dynamic scope registry (`references/tracked-tech.json` in the private ops vault). Consumes discovered-tech JSON, Wappalyzer output, Nmap XML, or CycloneDX / SPDX SBOMs.
