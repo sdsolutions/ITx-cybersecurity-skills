@@ -130,7 +130,7 @@ Per agent rules, **never report scanner severity as final**. Every finding ships
 
 ### Report comment on trigger issue
 
-Post `report.md` from the batch dir (it already contains the summary + table + upgrade targets), then append:
+Post `report.md` from the batch dir (it already contains the summary + table + upgrade targets; every scan-derived field is sanitized), then append:
 
 ```
 Full artifact: .raw/dep-scans/<batch-id>/report.json in the ITx vault.
@@ -169,6 +169,7 @@ Delete `$WORK` and any temporary clone afterwards.
 - **Never** enable `--call-analysis rust` on untrusted code outside a disposable sandbox (it executes build scripts).
 - **Never** present scanner severity as a confirmed finding.
 - **Never** write absolute runtime paths into reports — `--scan-root` keeps manifest paths relative.
+- **Never** paste raw `report.json` / scanner fields into a comment. Package names, versions and manifest paths are attacker-controlled in client code (Markdown, links, mention-link injection). Post only `report.md`, whose fields `normalize.py` allowlist-sanitizes and code-spans; hand-written prose about a finding wraps those values in backticks too.
 - **Never** scan system dirs (`/System`, `/Library`, `~/.ssh`, `~/.gnupg`, `/private/var`).
 
 ## Guardrails

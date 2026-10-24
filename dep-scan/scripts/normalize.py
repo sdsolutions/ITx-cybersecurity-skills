@@ -110,6 +110,29 @@ def fixed_version(vuln, eco, name, current):
     return min(candidates, key=version_key) if candidates else None
 
 
+# Package names, versions and manifest paths come from the scanned project —
+# attacker-controlled for client code. Everything interpolated into report.md
+# (which is posted as an issue comment) goes through md() so it cannot break
+# the table, inject links/images/HTML, or form mention links.
+_SAFE = re.compile(r"[^A-Za-z0-9 _.:/@+~=-]")
+_ID = re.compile(r"^[A-Za-z0-9._:-]{1,80}$")
+_PKG = re.compile(r"^[A-Za-z0-9@._/:+~-]{1,214}$")
+
+
+def md(value, limit=120):
+    """Render untrusted text as inert Markdown: allowlisted characters only,
+    anything else replaced, length-capped. Wrapped in a code span by callers
+    where structure matters."""
+    text = str(value if value is not None else "")
+    text = _SAFE.sub("\uFFFD", text.replace("\r", " ").replace("\n", " "))
+    return text[:limit] + ("…" if len(text) > limit else "")
+
+
+def safe_id(value):
+    """OSV/CVE identifiers are used in URLs — reject anything not ID-shaped."""
+    return value if isinstance(value, str) and _ID.match(value) else None
+
+
 def rel(path, root):
     try:
         return os.path.relpath(path, root) if root else path
@@ -228,8 +251,11 @@ def main():
 
     # discovered-tech hand-off (tech-register native format + osv_packages/purl)
     reg = {"none": set(), "vulnerable": vuln_pkgs, "all": set(all_packages)}[args.register]
-    tech = []
+    tech, rejected = [], 0
     for (eco, name, ver) in sorted(reg):
+        if not (_PKG.match(name) and _PKG.match(eco) and _PKG.match(ver or "0")):
+            rejected += 1  # malformed/hostile name — keep it out of the registry
+            continue
         ptype = PURL_TYPE.get(eco.split(":")[0])
         tech.append({
             "name": name, "version": ver,
@@ -244,10 +270,21 @@ def main():
         json.dump(tech, fh, indent=2)
 
     # Comment-ready markdown
+    def code(value, limit=120):
+        return f"`{md(value, limit)}`"
+
+    def advisory(f):
+        pid = safe_id(f["primary_id"])
+        return f"[{pid}](https://osv.dev/vulnerability/{pid})" if pid else code(f["primary_id"], 40)
+
+    def cve_cell(f):
+        ids = [c for c in f["cves"] if safe_id(c)]
+        return ", ".join(ids[:2]) + (" …" if len(ids) > 2 else "") if ids else "—"
+
     lines = [
-        f"### Dependency scan: {args.input_label} — {len(findings)} advisory groups in {len(vuln_pkgs)} packages",
+        f"### Dependency scan: {code(args.input_label, 200)} — {len(findings)} advisory groups in {len(vuln_pkgs)} packages",
         "",
-        f"Mode: {args.mode} · Scanner: {args.scanner_version} · Manifests: {len(sources)} · Packages: {len(all_packages)}",
+        f"Mode: {md(args.mode, 20)} · Scanner: {code(args.scanner_version, 80)} · Manifests: {len(sources)} · Packages: {len(all_packages)}",
         "Severity (scanner-derived, **unconfirmed**): " + ", ".join(f"{s} {counts[s]}" for s in SEVERITY_ORDER),
         f"CISA KEV matches: {report['kev_matches']}",
         "",
@@ -255,23 +292,25 @@ def main():
         "|---|---|---|---|---|---|---|---|---|---|",
     ]
     for f in findings:
-        lines.append("| {eco}/{pkg} | {ver} | [{pid}]({url}) | {cve} | {cvss} | {epss} | {sev} | {kev} | {fix} | `{src}` |".format(
-            eco=f["ecosystem"], pkg=f["package"], ver=f["version"], pid=f["primary_id"], url=f["osv_urls"][0],
-            cve=", ".join(f["cves"][:2]) + (" …" if len(f["cves"]) > 2 else "") or "—",
+        lines.append("| {pkg} | {ver} | {adv} | {cve} | {cvss} | {epss} | {sev} | {kev} | {fix} | {src} |".format(
+            pkg=code(f"{f['ecosystem']}/{f['package']}"), ver=code(f["version"], 60), adv=advisory(f),
+            cve=cve_cell(f),
             cvss=f["cvss_max"] if f["cvss_max"] is not None else "—",
             epss=f"{f['epss']:.3f}" if f.get("epss") is not None else "—", sev=f["severity"],
-            kev="**YES**" if f["kev"] else "", fix=f["fixed_in"] or "no fix", src=f["source"]))
+            kev="**YES**" if f["kev"] else "", fix=code(f["fixed_in"], 60) if f["fixed_in"] else "no fix",
+            src=code(f["source"], 160)))
     if upgrades:
         lines += ["", "#### Upgrade targets (clears every advisory with a published fix)", "",
                   "_Heuristic — may cross a major version; check the changelog before upgrading._", ""]
         for t in report["upgrade_targets"]:
-            lines.append(f"- {t['ecosystem']}/{t['package']} {t['version']} → **{t['upgrade_to']}**")
+            lines.append(f"- {code(t['ecosystem'] + '/' + t['package'])} {code(t['version'], 60)} → **{code(t['upgrade_to'], 60)}**")
     with open(os.path.join(args.out_dir, "report.md"), "w", encoding="utf-8") as fh:
         fh.write("\n".join(lines) + "\n")
 
     print(json.dumps({"findings": len(findings), "vulnerable_packages": len(vuln_pkgs),
                       "packages": len(all_packages), "severity_counts": counts,
-                      "kev_matches": report["kev_matches"], "registered": len(tech)}))
+                      "kev_matches": report["kev_matches"], "registered": len(tech),
+                      "register_rejected": rejected}))
 
 
 if __name__ == "__main__":
