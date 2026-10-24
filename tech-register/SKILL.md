@@ -1,7 +1,7 @@
 ---
 name: tech-register
 description: >
-  Append newly-discovered technologies to references/tracked-tech.json in the sdsolutions/ITx-cybersecurity-vault ops repo. Consumes structured discovered-tech JSON, Wappalyzer output, Nmap XML, or a CycloneDX/SPDX SBOM. Auto-classifies pillar (web/product/hosting/compliance), CPE prefixes, and keyword patterns. Dedupes against existing registry entries. Commits + pushes. Triggers the CVE feed backfill on the next NVD sweep. Use when the user says "register [tech]", "add [tech] to tracked tech", "update registry", or when the security-scan skill needs to persist discoveries.
+  Append newly-discovered technologies to references/tracked-tech.json in the sdsolutions/ITx-cybersecurity-vault ops repo. Consumes structured discovered-tech JSON (including /dep-scan output with OSV package keys), Wappalyzer output, Nmap XML, or a CycloneDX/SPDX SBOM. Auto-classifies pillar (web/product/hosting/compliance), CPE prefixes, and keyword patterns. Dedupes against existing registry entries. Commits + pushes. Triggers the CVE feed backfill on the next NVD sweep. Use when the user says "register [tech]", "add [tech] to tracked tech", "update registry", or when the security-scan skill needs to persist discoveries.
 argument-hint: "<discovered-tech-json-path> | <wappalyzer-json> | <nmap-xml> | <sbom> | manual --name X [--pillar 1|2|3|4] [--cpe cpe:2.3:...] [--keyword pattern]"
 license: Proprietary source-available
 ---
@@ -34,11 +34,13 @@ Accept ONE of:
    ]
    ```
 
+   `/dep-scan` emits the same format with three extra fields — `ecosystem`, `purl`, `osv_packages` (`["<Ecosystem>:<name>"]`) — plus `pillar_hint` and `source: "dep-scan"`. Carry `osv_packages` and `purl` (into `purls[]`) through to the entry; use `pillar_hint` as the pillar guess.
+
 2. **Wappalyzer output JSON** — parse `technologies[]` array (each has `name`, `slug`, `categories`, `version`).
 
 3. **Nmap XML** — parse `//service[@name and @product]`; assemble as `{name: service.product, version: service.version, source: "nmap"}`.
 
-4. **CycloneDX 1.5 / SPDX 2.3 SBOM** — parse `components[]` / `packages[]`. Preserve PURL and CPE if present. Source: `sbom-cyclonedx` or `sbom-spdx`.
+4. **CycloneDX 1.5 / SPDX 2.3 SBOM** — parse `components[]` / `packages[]`. Preserve PURL and CPE if present. Derive `osv_packages` from the PURL type (`npm`→`npm`, `pypi`→`PyPI`, `golang`→`Go`, `maven`→`Maven` with `group:artifact`, `cargo`→`crates.io`, `gem`→`RubyGems`, `nuget`→`NuGet`, `composer`→`Packagist`). Source: `sbom-cyclonedx` or `sbom-spdx`.
 
 5. **Manual CLI** — `--name X --pillar N --cpe cpe:2.3:... --keyword pattern` (repeat `--keyword` as needed).
 
@@ -47,7 +49,7 @@ Accept ONE of:
 For each incoming entry that doesn't already exist:
 
 1. **Normalize** — lowercase name, strip version and vendor prefix, kebab-case (e.g. "Microsoft IIS 10.0" → `iis`).
-2. **Dedup** — case-insensitively match `name` or any of `aliases` against every existing entry (including `retired_at != null`). If a retired entry matches, update `retired_at: null` and `last_confirmed: today` — DO NOT create a duplicate.
+2. **Dedup** — match `osv_packages` exactly, or case-insensitively match `name` or any of `aliases`, against every existing entry (including `retired_at != null`). If a retired entry matches, update `retired_at: null` and `last_confirmed: today` — DO NOT create a duplicate.
 3. **Pillar classification heuristic** (fill best guess; a human can correct later):
    - `pillar 1 (web-app)`: web frameworks, HTTP servers, WAFs, CDNs, frontend libs, JS runtimes exposing HTTP, CMS platforms.
    - `pillar 2 (product-saas)`: SDKs, API platforms, mobile frameworks, auth-as-a-service, payment processors, embedded SaaS.
@@ -68,10 +70,12 @@ Append per new entry to `entries[]`:
   "pillar": <1|2|3|4>,
   "cpe_prefixes": ["cpe:2.3:a:vendor:product"],
   "keyword_patterns": ["pattern1", "pattern2"],
+  "osv_packages": ["<Ecosystem>:<name>"],
+  "purls": ["pkg:<type>/<name>@<version>"],
   "severity_min": null,
   "first_seen": "<YYYY-MM-DD today>",
   "last_confirmed": "<YYYY-MM-DD today>",
-  "sources": [{"type": "<scan|manual|wappalyzer|nmap|sbom>", "ref": "<scan-id or path>", "date": "<YYYY-MM-DD>"}],
+  "sources": [{"type": "<scan|manual|wappalyzer|nmap|sbom|dep-scan>", "ref": "<scan-id or path>", "date": "<YYYY-MM-DD>"}],
   "owner": null,
   "notes": null,
   "retired_at": null
@@ -85,6 +89,7 @@ For entries that dedupe against an existing one, only mutate:
 - Append to `sources[]` (do not overwrite)
 - Union new aliases into `aliases[]`
 - Union new keyword_patterns into `keyword_patterns[]`
+- Union new `osv_packages[]` and `purls[]`
 - Clear `retired_at` if the entry was retired but is confirmed present again
 
 ## Commit + push
@@ -129,3 +134,4 @@ Once committed, the next daily Autopilot B run (06:00 UTC) automatically perform
 - `references/tracked-tech.schema.md` — full schema
 - `wiki/sources/cve-feed/scope-policy.md` — how the registry is consumed
 - Sibling skill `security-scan` — the primary source of discovered-tech inputs
+- Sibling skill `dep-scan` — source of package-level entries with `osv_packages` (OSV package sweep)

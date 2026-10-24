@@ -1,6 +1,6 @@
 # ITx Cybersecurity Skills
 
-Public thin mirror of two Multica-installable agent skills used by the ITx cybersecurity engagement. This repo exists to be `multica skill import`-friendly; the operational vault (`sdsolutions/ITx-cybersecurity-vault`) stays private.
+Public thin mirror of the Multica-installable agent skills used by the ITx cybersecurity engagement. This repo exists to be `multica skill import`-friendly; the operational vault (`sdsolutions/ITx-cybersecurity-vault`) stays private.
 
 ## Skills
 
@@ -65,11 +65,35 @@ Usage:
 /secret-scan https://github.com/some/repo.git --include-history
 ```
 
+### `/dep-scan`
+
+Software composition analysis (SCA). Scans a project directory, git repo, lockfile, SBOM, or container image for open-source dependencies with known vulnerabilities using Google's [`osv-scanner`](https://github.com/google/osv-scanner) over [OSV.dev](https://osv.dev) (GHSA, PyPI, Go, RustSec, npm, Maven, NuGet, Packagist, RubyGems, crates.io, Debian/Ubuntu/Alpine, …).
+
+- **Prioritized** — cross-checks every CVE alias against the CISA KEV snapshot in the ops vault (actively-exploited floor = high), adds EPSS, sorts KEV-first
+- **Remediation-ready** — fixed versions per advisory + per-package upgrade targets
+- **Honest severity** — scanner-derived severity ships as `triage_status: unconfirmed`; the analyst confirms reachability and exposure before reporting
+- **Offline mode for client code** — local OSV databases, no package names leave the machine
+- **Never modifies the target** — no upgrades, no lockfile edits, no PRs
+- Hands vulnerable packages (with OSV package keys + PURLs) to `/tech-register` so the CVE feed's OSV package sweep keeps watching them
+- Evidence for OWASP ASVS v5 V15 (dependencies)
+
+Requires `osv-scanner` (`brew install osv-scanner`; otherwise the skill downloads a checksum-verified release) and `python3` (stdlib only — `scripts/normalize.py`).
+
+Usage:
+
+```
+/dep-scan ./
+/dep-scan https://github.com/some/repo.git
+/dep-scan ./client-app --offline --register none
+/dep-scan ./bom.cdx.json
+/dep-scan ghcr.io/acme/api:1.4.2
+```
+
 ### `/tech-register`
 
-The **skill**. Persists newly-discovered technologies to the CVE feed's dynamic scope registry (`references/tracked-tech.json` in the private ops vault). Consumes discovered-tech JSON, Wappalyzer output, Nmap XML, or CycloneDX / SPDX SBOMs.
+The **skill**. Persists newly-discovered technologies to the CVE feed's dynamic scope registry (`references/tracked-tech.json` in the private ops vault). Consumes discovered-tech JSON (including `/dep-scan` output with OSV package keys), Wappalyzer output, Nmap XML, or CycloneDX / SPDX SBOMs.
 
-Auto-classifies pillar, CPE prefixes, and keyword patterns. Dedupes case-insensitively against `name` + `aliases`. Never removes entries.
+Auto-classifies pillar, CPE prefixes, and keyword patterns. Dedupes on `osv_packages` and case-insensitively against `name` + `aliases`. Never removes entries.
 
 Effect: new registered tech triggers a 90-day CVE backfill on the next daily NVD sweep by the `CVE Feed: NVD Delta Daily Sweep` autopilot in the ITx workspace.
 
@@ -85,10 +109,12 @@ Usage:
 ```bash
 multica skill import --url github.com/sdsolutions/ITx-cybersecurity-skills/tree/main/security-scan --output json
 multica skill import --url github.com/sdsolutions/ITx-cybersecurity-skills/tree/main/tech-register --output json
+multica skill import --url github.com/sdsolutions/ITx-cybersecurity-skills/tree/main/dep-scan --output json
 
 # Bind to Cybersecurity Manager
 multica agent skills add 70893587-172c-4a4a-a5a1-847614784b3a --skill-ids <security-scan-id>
 multica agent skills add 70893587-172c-4a4a-a5a1-847614784b3a --skill-ids <tech-register-id>
+multica agent skills add 70893587-172c-4a4a-a5a1-847614784b3a --skill-ids <dep-scan-id>
 ```
 
 ## Why public
